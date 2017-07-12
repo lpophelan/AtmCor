@@ -23,6 +23,7 @@ import tiffgenerator as tg #Necessary for the running of: 1,2
 import os #Necessary for the running of: 2
 import numpy as np #Necessary for the running of: 2, 5
 import rastercr as rc #Necessary for the running of: 3
+import smac #Necessary for the running of: 4.A
 import gdal #Necessary for the running of 5
 from gdalconst import * #Necessary for the running of: 3, 5
 import time #Necessary for the running of: 5
@@ -184,8 +185,8 @@ def S2_adjust(band_id, solar_corrected, sun_zenith):
 	"""
 	scale_factor = 10000 #Scale factr used for the reflectance values.
 	band_id = np.array(band_id)
-	band_id = band_id * float(solar_corrected) *np.cos(sun_zenith*(np.pi/180)) / (np.pi * scale_factor)
-	return band_id
+	band_id_cor = band_id * float(solar_corrected) *np.cos(sun_zenith*(np.pi/180)) / (np.pi * scale_factor)
+	return band_id_cor, band_id
 
 def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
 	"""
@@ -207,18 +208,26 @@ def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
 
 #==============================================================================================
 #4.A: The SMAC (Simplified Method for Atmospheric Correction) function:
-def smac_func(band_no,phi_v,phi_s,theta_v,theta_s):
+def smac_func(band_no,r_toa,azimuth_view,azimuth_sun,zenith_view,zenith_sun, s28a):
 	"""
 	Declare source of the programme.
 	Requires access to the folder "COEFS" which contains the data files for the 
 	smac coefficients.
+	S2-8A parameter takes 8A into account.
 	"""
-	nom_smac = 'COEFS/Coef_S2A_CONT_B' + band_no + '.dat'
+	if s28a is True:
+		print("Converting:")
+		nom_smac = 'COEFS/Coef_S2A_CONT_B' + str(band_no) + 'a.dat'
+	else:
+		nom_smac = 'COEFS/Coef_S2A_CONT_B' + str(band_no) + '.dat'
 	coefs=smac.coeff(nom_smac)
-	r_surf = smac.smac_inv(r_toa , theta_s, phi_s, theta_v[band_no], phi_v[band_no],1013,0.1,0.3,0.3, coefs)
-	r_toa2 = smac.smac_dir(r_surf, theta_s, phi_s, theta_v[band_no], phi_v[band_no],1013,0.1,0.3,0.3, coefs)
+	#For SMAC, Thetas are the zeniths and Phis are the azimuths
+	r_surf = smac.smac_inv(r_toa , zenith_sun, azimuth_sun, float(zenith_view[band_no]), float(azimuth_view[band_no]),1013,0.1,0.3,0.3, coefs)
+	#r_toa2 = smac.smac_dir(r_surf, theta_s, phi_s, theta_v[band_no], phi_v[band_no],1013,0.1,0.3,0.3, coefs)
+	r_toa2 = smac.smac_dir(r_surf, zenith_sun, azimuth_sun, float(zenith_view[band_no]), float(azimuth_view[band_no]),1013,0.1,0.3,0.3, coefs)		
 	return r_surf, r_toa2
 
+#4.B: The
 #==============================================================================================
 
 #==============================================================================================
@@ -236,7 +245,6 @@ def main():
 	sun_zen, sun_azi = sun_ang("Mean_Sun_meta_1.txt") #still using first metadata files created
 	#Produce a tuple for the average viewing zenith and azimuth angles.
 	view_zen, view_azi = view_ang("Mean_Viewing_Incidence_Angle_List_meta_1.txt") #still using first metadata files created
-	print(view_zen)
 	#Correct each band from reflectance to radiance.
 	data_file = (outputPath+"/" + inputPath[:60] + "_PROCESSED/merged.tif")
 	dataset = gdal.Open(data_file, GA_ReadOnly) #Creates the gdal osgeo class object.
@@ -251,13 +259,21 @@ def main():
 	pixelHeight = geotransform[5]
 	for i in range(bands,0,-1):
 		band = create_arr(dataset, i ,cols, rows)
-		band_rad = S2_adjust(band, sol_cor[i*2 - 1], sun_zen)
+		band_rad, band_ref = S2_adjust(band, sol_cor[i*2 - 1], sun_zen)
 		band_gs = create_tiff(band_rad, "band_" +str(i),rasterOrigin,pixelWidth,pixelHeight)
+		if i > 9:
+			band_smac_1, band_smac_2 = smac_func(i-1,band_ref,view_azi,sun_azi,view_zen, sun_zen, False)
+		elif i == 9:
+			band_smac_1, band_smac_2 = smac_func(i-1,band_ref,view_azi,sun_azi,view_zen, sun_zen, True)
+		else:
+			band_smac_1, band_smac_2 = smac_func(i,band_ref,view_azi,sun_azi,view_zen, sun_zen, False)
+		band_smac_gs1 = create_tiff(band_smac_1, "band_smac_rsurf_" +str(i),rasterOrigin,pixelWidth,pixelHeight)
+		band_smac_gs2 = create_tiff(band_smac_2, "band_smac_rtoa2_" +str(i),rasterOrigin,pixelWidth,pixelHeight)
 #==============================================================================================
 
 #==============================================================================================
 if __name__ == "__main__":
 	start_time = time.time()
 	main()
-	print("\n === Completed after %s seconds ===" % (time.time() - start_time))
+	print("\n === Completed after %s.3f seconds ===" % (time.time() - start_time))
 #==============================================================================================
