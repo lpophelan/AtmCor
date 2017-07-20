@@ -17,14 +17,16 @@ Adjust the DN within the array so that the newly created tiff files contain
 pixels representing
 TOA radiance instead of reflectance.
 
-4. Define AC (Atmospheric Correction) models here.
+4. Define AC (Atmospheric Correction) models here. Currently it includes an 
+implementation of the CNES SMAC tool and Py6S.
 
 5. A main function for whenever this script is called independently.
 """
 
+import logging
 import os #Necessary for the running of: 2
 import time #Necessary for the running of: 5
-import logging
+import gdal #Necessary for the running of 5
 import numpy as np #Necessary for the running of: 2, 5
 import subprocess as sp #Necessary for the running of: 5
 
@@ -34,14 +36,14 @@ from Py6S import * #Necessary for the running of: 4.B
 import tiffgenerator as tg #Necessary for the running of: 1,2
 import rastercr as rc #Necessary for the running of: 3
 import smac #Necessary for the running of: 4.A
-import gdal #Necessary for the running of 5
+
 
 #Authorship information next:
 __author__ = "Liam Phelan"
 __version__ = "1.0"
 __status__ = "Prototype"
 
-logging.basicConfig(filename="script.log",format='%(asctime)s:%(levelname)s:%(message)s')
+logging.basicConfig(filename="script.log")
 
 # create logger
 logger = logging.getLogger('Main Script')
@@ -52,7 +54,8 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 
 # create formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # add formatter to ch
 ch.setFormatter(formatter)
@@ -146,8 +149,8 @@ def selected_metadata(inputPath, outputPath):
 
 def sol_irr(solar_file):
     """
-    This function opens a 'solar file', which contains the information produced
-    for the "Reflectance Conversion" .txt file above.
+    This function opens a 'solar file', which contains the information 
+    produced for the "Reflectance Conversion" .txt file above.
     The function iterates through the file and produces corrected solar 
     irradiances for each band.
     """
@@ -329,7 +332,9 @@ def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
 	rc.main(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,data)
 	return data
 
-#Should add function to handle the creation of bands that don't come from the .zip or .SAFE files, e.g. re-merging band images after correction. Would be useful, but not too sure about how to do it just yet.
+#Should add function to handle the creation of bands that don't come from the 
+#.zip or .SAFE files, e.g. re-merging band images after correction. Would be 
+#useful, but not too sure about how to do it just yet.
 #=============================================================================
 
 #=============================================================================
@@ -338,8 +343,8 @@ def smac_func(band_no,r_toa,azimuth_view,azimuth_sun,zenith_view,zenith_sun,
               coefficients, s28a):
     """
     Declare source of the programme.
-    Requires access to the folder "COEFS" which contains the data files for the 
-    smac coefficients.
+    Requires access to the folder "COEFS" which contains the data files for 
+    the smac coefficients.
     S2-8A parameter takes 8A into account.
     r_surf=smac_inv(r_toa,theta_s,phi_s,theta_v,phi_v,pressure,AOT,UO3,UH2O,
     coefs)
@@ -384,8 +389,8 @@ def sixs_func(
     logger.debug("AtmosProf params: Lat = %s | %s; ObsDate = %s | %s",
         satellite_latitude, type(satellite_latitude),
         observation_date, type(observation_date))
-    s.atmos_profile = AtmosProfile.FromLatitudeAndDate(float(satellite_latitude),
-        observation_date)
+    s.atmos_profile = AtmosProfile.FromLatitudeAndDate(
+        float(satellite_latitude), observation_date)
     logger.debug("6S Atmospheric Profile: %s ",s.atmos_profile)
     #Maritime profile suitable for Ireland
     s.aero_profile = AeroProfile.PredefinedType(AeroProfile.Maritime)
@@ -432,7 +437,7 @@ def sixs_func(
 #5: Combine the functions for a sample output when this script's called alone.
 def main():
     inputPath, outputPath = open_s2() #Opens a Sentinel-2 product.
-    obs_date = (inputPath.split("_"))[2].split("T")[0] #Extracts observation date.
+    obs_date = (inputPath.split("_"))[2].split("T")[0] #Get observation date.
     selected_metadata(inputPath, outputPath) #Create metadata files.
     #Correct solar irradiance for reflectance at measurement Earth's position:
     sol_irr_at_sat, correction_coefficient = sol_irr(
@@ -502,10 +507,10 @@ def main():
     print("100 - done.")
     sp.call(radiance_bands)
     sp.call(smac_bands)
-    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","s2_out.tif"])
+    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
     #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
     #Errors when gdalwarp called as above, but the equivalent 
-    #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif s2_out.tif
+    #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif out.tif
     #is fine when input directly to terminal. 
 
     #band_wavelength:
