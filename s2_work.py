@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# encoding=utf-8
 """
 Description of this script here.
 Rather than making a complicated script which does a lot of things
@@ -37,13 +38,12 @@ import tiffgenerator as tg #Necessary for the running of: 1,2
 import rastercr as rc #Necessary for the running of: 3
 import smac #Necessary for the running of: 4.A
 
-
 #Authorship information next:
 __author__ = "Liam Phelan"
 __version__ = "1.0"
 __status__ = "Prototype"
 
-logging.basicConfig(filename="script.log")
+logging.basicConfig(filename="S2A-2017_05_08.log")
 
 # create logger
 logger = logging.getLogger('Main Script')
@@ -106,14 +106,14 @@ def metadata_get(filename, metadata):
         logger.debug("%s already exists, checking for v.%s",mtd_filname,i+1) 
         i += 1
         mtd_filname = ''.join([metadata,"_meta_",str(i),".txt"])
-    with open(filename, "r") as meta_file:
+    with open(filename, "r",encoding='utf-8') as meta_file:
         pmt = 1 #Parameter to turn on/off when the relevant data is found.
         for lines in meta_file:
             if metadata in lines:
                 pmt *= -1 #Switches the parameter when it is found.
             if pmt < 0:
                 #print("Writing " + metadata +" to file.")
-                with open(mtd_filname,"a") as out_file:
+                with open(mtd_filname,"a",encoding='utf-8') as out_file:
                     out_file.write(lines)
     #if not args.quiet:	
     print("Finished creating metadata relating to %s file." %(metadata))
@@ -155,7 +155,7 @@ def sol_irr(solar_file):
     irradiances for each band.
     """
     sol_irr = []
-    with open(solar_file,"r") as sol_info:
+    with open(solar_file,"r",encoding='utf-8') as sol_info:
         for lines in sol_info:
             if "<U>" in lines:
                 conv_coef = float(lines.strip().replace("<U>","</U>"). \
@@ -176,7 +176,7 @@ def band_wave(wavelength_file):
     Opens the provided wavelength file to convert the information from .xml 
     format to useable data.
     """
-    with open(wavelength_file,"r") as wave_info:
+    with open(wavelength_file,"r",encoding='utf-8') as wave_info:
         min_wave = []
         max_wave = []
         mid_wave = []
@@ -210,7 +210,7 @@ def lat_and_long(global_file):
     Opens the global footprint file to convert the metadata from .xml format
     into useable data.
     """
-    with open(global_file, "r") as foot_info:
+    with open(global_file, "r",encoding='utf-8') as foot_info:
         for line in foot_info:
             line = line.strip(" ") #First line just contains text.
             line = line.replace("<EXT_POS_LIST>","")
@@ -232,7 +232,7 @@ def sun_ang(sun_file):
     the sun zenith and azimuth angles.
     """
     angles = []
-    with open(sun_file,"r") as sun_info:
+    with open(sun_file,"r",encoding='utf-8') as sun_info:
         for line in sun_info:
             if "ANGLE" in line:
                 x = line.split('"deg">')
@@ -250,7 +250,7 @@ def view_ang(view_file):
     format zenith, azimuth.
     """
     view_arr = []
-    with open(view_file, "r") as view_info:
+    with open(view_file, "r",encoding='utf-8') as view_info:
         for lines in view_info:
             view_arr = np.append(view_arr, lines.strip()) #Remove whitespace.
     view_arr = view_arr[1:-1] #Removes lines which did not have desired data.
@@ -430,6 +430,7 @@ def sixs_func(
         logger.warning("Failed to produce debug report")
             
     s.run()
+    logger.info(s.run())
     return None
 #=============================================================================
 
