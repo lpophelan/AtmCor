@@ -27,7 +27,8 @@ implementation of the CNES SMAC tool and Py6S.
 import logging
 import os #Necessary for the running of: 2
 import time #Necessary for the running of: 5
-import gdal #Necessary for the running of 5
+import gdal #Necessary for the running of: 5
+import pickle #Necessary for the running of: 4
 import numpy as np #Necessary for the running of: 2, 5
 import subprocess as sp #Necessary for the running of: 5
 
@@ -43,7 +44,7 @@ __author__ = "Liam Phelan"
 __version__ = "1.0"
 __status__ = "Prototype"
 
-logging.basicConfig(filename="S2A-2017_05_08.log")
+logging.basicConfig(filename="S2A-2017_05_08.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # create logger
 logger = logging.getLogger('Main Script')
@@ -371,7 +372,7 @@ def smac_func(band_no,r_toa,azimuth_view,azimuth_sun,zenith_view,zenith_sun,
 def sixs_func(
     satellite_latitude, observation_date, month, day,
     solar_zenith, solar_azimuth, view_zenith, view_azimuth,
-    target_altitude, band_wavelength):
+    target_altitude, band_wavelength, iLUT):
     """
     Do analysis with 6S function.
     """
@@ -407,10 +408,12 @@ def sixs_func(
     logger.debug("Month and day parameters: %s %s | %s %s",
         month, type(month), day, type(day))
     s.geometry.solar_z = float(solar_zenith)
+    print(s.geometry.solar_z)
+    logging.info("SixS Geometry: Solar Z = %s", s.geometry.solar_z)
     s.geometry.solar_a = float(solar_azimuth)
     s.geometry.view_z = float(view_zenith)
     s.geometry.view_a = float(view_azimuth)
-    s.geometry.day = int(month)
+    s.geometry.month = int(month)
     s.geometry.day = int(day)
     logger.debug("6S Geometry: %s ",s.geometry)
     s.altitudes = Altitudes()
@@ -430,7 +433,36 @@ def sixs_func(
         logger.warning("Failed to produce debug report")
             
     s.run()
-    logger.info(s.run())
+    file_out = ''.join(["6S_outputs_",str(band_wavelength),".txt"])
+    s.outputs.write_output_file(file_out)
+    """
+    An interpolated look-up table requires the following input variables 
+    (in order) to provide atmospheric correction coefficients:
+        solar zentith [degrees] (0 - 75)
+        water vapour [g/m2] (0 - 8.5)
+        ozone [cm-atm] (0 - 0.8)
+        aerosol optical thickness [unitless] (0 - 3)
+        surface altitude [km] (0 - 7.75)
+    """
+    sp.call(["cat",file_out])
+    #Should replace the hard values with a function which calls the correct
+    #value from the 
+    water_vapour = 1.349 #g/cm2
+    ozone = 0.343 #cm-atm
+    aerosol_optical_thickness = 0.5
+    surface_altitude = target_altitude
+    a, b = iLUT(
+        solar_zenith, water_vapour, 
+        ozone, aerosol_optical_thickness, 
+        surface_altitude)
+    print(a,b)
+    logger.info("Corrrection coefficients for Py6S: %s %s", a, b)
+    #ρ = (L - a) / b
+    #At-sensor radiance (L)  
+    #call s2_adjust to get L
+    #However, this function has probably done enough work.
+    #So just return a & b.
+    #return surface_reflectance = (L-a) / b
     return None
 #=============================================================================
 
@@ -533,11 +565,22 @@ def main():
     sixs_s2_wavelengths = sixs_s2_wavelengths.strip("\n").strip(" ") \
         .replace("\n","").split("    ")
     #Ground altitude:
-    gnd_alt = 1
+    gnd_alt = 0.2 #Surface height above sea level (km)
+    base = "6S_emulator/files/LUTs/S2A_MSI/Continental/view_zenith_0/files/\
+        iLUTs/S2A_MSI/Continental/view_zenith_0/"
+    base = base.replace("        ",'')
+    logger.debug(base)
     for i in range(bands):
+        if i+1 < 10:                       
+            fpath = ''.join([base,"S2A_MSI_0",str(i+1),".ilut"])
+        else:
+            fpath = ''.join([base,"S2A_MSI_",str(i+1),".ilut"])
+        logging.debug("Filepath: %s", fpath)
+        with open(fpath, "rb") as ilut_file:
+            iLUT = pickle.load(ilut_file)
         sixs_func(sat_lat[i], obs_date, obs_date[4:-2], obs_date[-2:],
             sun_zen, sun_azi, view_zen[i], view_azi[i],
-            gnd_alt, sixs_s2_wavelengths[i])
+            gnd_alt, sixs_s2_wavelengths[i], iLUT)
 #=============================================================================
 
 #=============================================================================
