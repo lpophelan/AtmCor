@@ -259,8 +259,8 @@ def view_ang(view_file):
     means_dict = {}
     for term in view_arr:
         if "bandId" in term:
-	        #means[term[30:-1]]=term[37:-1] #assigns a key with the band id
-	        #This is only for S2 right now, does not apply to other metadata.
+            #means[term[30:-1]]=term[37:-1] #assigns a key with the band id
+            #This is only for S2 right now, does not apply to other metadata.
             y=int(term[38:-2]) #stores the band id
             if y < 8:
                 y += 1
@@ -297,41 +297,42 @@ def view_ang(view_file):
 #=============================================================================
 #3: Create an array of top-of-the-atmosphere pixel values.
 def create_arr(tif_data, band_no,cols, rows, ):
-	"""
-	Reads in a data file such as the merged tif created in Part 1.
-	Uses gdal to convert this to an array for some band within the tif.
-	"""
-	band = tif_data.GetRasterBand(band_no) #Obtains the band information
-	data = band.ReadAsArray(0,0, cols,rows) #Sets it as an array.
-	return data
+    """
+    Reads in a data file such as the merged tif created in Part 1.
+    Uses gdal to convert this to an array for some band within the tif.
+    """
+    band = tif_data.GetRasterBand(band_no) #Obtains the band information
+    data = band.ReadAsArray(0,0, cols,rows) #Sets it as an array.
+    return data
 
 def s2_adjust(band_id, solar_corrected, sun_zenith):
-	"""
-	Reads in the array for some S2 band and adjusts the pixel data to return 
+    """
+    Reads in the array for some S2 band and adjusts the pixel data to return 
     TOA radiance.
-	rho = pi*L/E_s * cos(Theta_s)
-	"""
-	scale_factor = 10000 #Scale factor used for the reflectance values.
-	band_id = np.array(band_id)
-	band_id = (band_id 
-               * float(solar_corrected) 
-               * np.cos(sun_zenith*(np.pi/180))
-               / (np.pi*scale_factor))
-	return band_id
+    rho = pi*L/E_s * cos(Theta_s)
+    """
+    scale_factor = 10000 #Scale factor used for the reflectance values.
+    band_id = np.array(band_id)
+    band_id = (band_id 
+        * float(solar_corrected) 
+        * np.cos(sun_zenith*(np.pi/180))
+        / (np.pi*scale_factor))
+    return band_id
 
 def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
-	"""
-	Re-normalize to GS range (0-255).
-	Then creates a tiff for some input data.
-	"""	
-	max_data = 0
-	for i in range(len(data)):
-		if max(data[i]) > max_data:	
-			max_data = max(data[i])
-	data = data/(max_data/255)
-	newRasterfn = ''.join([name,'.tif'])
-	rc.main(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,data)
-	return data
+    """
+    Re-normalize to GS range (0-255).
+    Then creates a tiff for some input data.
+    """	
+    max_data = 0
+    for i in range(len(data)):
+        if max(data[i]) > max_data:	
+            max_data = max(data[i])
+    data = data/(max_data/255)
+    newRasterfn = ''.join([name,'.tif'])
+    rc.main(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,data)
+    logger.debug("Raster file created.")
+    return data
 
 #Should add function to handle the creation of bands that don't come from the 
 #.zip or .SAFE files, e.g. re-merging band images after correction. Would be 
@@ -409,7 +410,7 @@ def sixs_func(
         month, type(month), day, type(day))
     s.geometry.solar_z = float(solar_zenith)
     print(s.geometry.solar_z)
-    logging.info("SixS Geometry: Solar Z = %s", s.geometry.solar_z)
+    logger.info("SixS Geometry: Solar Z = %s", s.geometry.solar_z)
     s.geometry.solar_a = float(solar_azimuth)
     s.geometry.view_z = float(view_zenith)
     s.geometry.view_a = float(view_azimuth)
@@ -435,6 +436,7 @@ def sixs_func(
     s.run()
     file_out = ''.join(["6S_outputs_",str(band_wavelength),".txt"])
     s.outputs.write_output_file(file_out)
+    sp.call(["cat",file_out])
     """
     An interpolated look-up table requires the following input variables 
     (in order) to provide atmospheric correction coefficients:
@@ -444,7 +446,6 @@ def sixs_func(
         aerosol optical thickness [unitless] (0 - 3)
         surface altitude [km] (0 - 7.75)
     """
-    sp.call(["cat",file_out])
     #Should replace the hard values with a function which calls the correct
     #value from the 
     water_vapour = 1.349 #g/cm2
@@ -457,13 +458,15 @@ def sixs_func(
         surface_altitude)
     print(a,b)
     logger.info("Corrrection coefficients for Py6S: %s %s", a, b)
-    #ρ = (L - a) / b
-    #At-sensor radiance (L)  
-    #call s2_adjust to get L
-    #However, this function has probably done enough work.
-    #So just return a & b.
-    #return surface_reflectance = (L-a) / b
-    return None
+    return a, b
+
+def sixs_surf(cor_a, cor_b, sen_rad):
+    """
+    Reads in the correction coefficients, the radiance at the sensor and
+    returns a value for the surface reflectance.
+    """
+    ρ = (sen_rad - cor_a) / cor_b
+    return ρ
 #=============================================================================
 
 #=============================================================================
@@ -505,48 +508,8 @@ def main():
     #Create arrays to append bands to.
     radiance_bands = ["gdal_merge.py", "-o", "s2_radiance.tif","-separate"] 
     smac_bands = ["gdal_merge.py", "-o", "smac.tif","-separate"]
-    #Iterate through the 13 Sentinel bands, creating tiffs.
-    for i in range(bands):
-        band = create_arr(dataset, i+1 ,cols, rows)
-        band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen)
-        if i < 8:
-            name = ''.join(["B",str(i+1)]) #Band names as in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_smac = smac_func(
-                i+1,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
-        elif i == 8:
-            name = ''.join(["B",str(i),"A"]) #Band name in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_smac = smac_func(
-                i,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', True)
-        else:
-            name = ''.join(["B",str(i)]) #Band names as in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_smac = smac_func(
-                i,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
-        radiance_bands.append(''.join([name,".tif"]))
-        name_sm = ''.join(["SMAC_",name])
-        band_smac_gs1 = create_tiff(
-            band_smac, name_sm,rasterOrigin,pixelWidth,pixelHeight)
-        print("%.f" % (i*100/13), end="..", flush=True)
-        smac_bands.append(''.join([name_sm,".tif"]))
-
-    print("100 - done.")
-    sp.call(radiance_bands)
-    sp.call(smac_bands)
-    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
-    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
-    #Errors when gdalwarp called as above, but the equivalent 
-    #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif out.tif
-    #is fine when input directly to terminal. 
-
-    #band_wavelength:
+    sixs_bands = ["gdal_merge.py", "-o", "smac.tif","-separate"]
+    #The different band wavelengths which are necessary for 6S:
     sixs_s2_wavelengths = """
     S2A_MSI_01
     S2A_MSI_02
@@ -564,23 +527,80 @@ def main():
     """
     sixs_s2_wavelengths = sixs_s2_wavelengths.strip("\n").strip(" ") \
         .replace("\n","").split("    ")
-    #Ground altitude:
+    #Ground altitude, would be useful to tie in equivalent S1 data.
     gnd_alt = 0.2 #Surface height above sea level (km)
+    #Base filename for where the iLUTs are stored.
+    #Assumes that working in fixed directory, needs to be adapted.
     base = "6S_emulator/files/LUTs/S2A_MSI/Continental/view_zenith_0/files/\
         iLUTs/S2A_MSI/Continental/view_zenith_0/"
     base = base.replace("        ",'')
     logger.debug(base)
+    #Iterate through the 13 Sentinel bands, creating tiffs.
     for i in range(bands):
+        #Initialise 6S
         if i+1 < 10:                       
             fpath = ''.join([base,"S2A_MSI_0",str(i+1),".ilut"])
         else:
             fpath = ''.join([base,"S2A_MSI_",str(i+1),".ilut"])
-        logging.debug("Filepath: %s", fpath)
+        logger.debug("Filepath: %s", fpath)
         with open(fpath, "rb") as ilut_file:
             iLUT = pickle.load(ilut_file)
-        sixs_func(sat_lat[i], obs_date, obs_date[4:-2], obs_date[-2:],
+        a, b = sixs_func(sat_lat[i], obs_date, obs_date[4:-2], obs_date[-2:],
             sun_zen, sun_azi, view_zen[i], view_azi[i],
             gnd_alt, sixs_s2_wavelengths[i], iLUT)
+        band = create_arr(dataset, i+1 ,cols, rows)
+        logger.debug("Created array for band %s", str(i+1))
+        band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen)
+        logger.debug("Changed reflectance to radiance for band %s", str(i+1))
+        sixs_boa = sixs_surf(a, b, band_rad)
+        logger.debug("Determiend BOA reflectance using 6S parameters.")
+        if i < 8:
+            name = ''.join(["B",str(i+1)]) #Band names as in original MTD data.
+            band_gs = create_tiff(
+                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
+            band_6s = create_tiff(
+                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
+                pixelHeight)
+            band_smac = smac_func(
+                i+1,np.array(band),view_azi,sun_azi,
+                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
+        elif i == 8:
+            name = ''.join(["B",str(i),"A"]) #Band name in original MTD data.
+            band_gs = create_tiff(
+                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
+            band_6s = create_tiff(
+                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
+                pixelHeight)
+            band_smac = smac_func(
+                i,np.array(band),view_azi,sun_azi,
+                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', True)
+        else:
+            name = ''.join(["B",str(i)]) #Band names as in original MTD data.
+            band_gs = create_tiff(
+                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
+            band_6s = create_tiff(
+                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
+                pixelHeight)
+            band_smac = smac_func(
+                i,np.array(band),view_azi,sun_azi,
+                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
+        radiance_bands.append(''.join([name,".tif"]))
+        name_sm = ''.join(["SMAC_",name])
+        band_smac_gs1 = create_tiff(
+            band_smac, name_sm,rasterOrigin,pixelWidth,pixelHeight)
+        print("%.f" % (i*100/13), end="..", flush=True)
+        smac_bands.append(''.join([name_sm,".tif"]))
+        sixs_bands.append(''.join(["6S",name,".tif"]))
+
+    print("100 - done.")
+    sp.call(radiance_bands)
+    sp.call(smac_bands)
+    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
+    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
+    #Errors when gdalwarp called as above, but the equivalent 
+    #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif out.tif
+    #is fine when input directly to terminal. 
+
 #=============================================================================
 
 #=============================================================================
