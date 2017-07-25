@@ -223,9 +223,9 @@ def lat_and_long(global_file):
         lat, lon = [], []
         for i in range(len(foot)-1): #Avoid adding last blank space.
             if i%2 == 0:
-                lat = np.append(lat, foot[i])
+                lat = np.append(lat, float(foot[i]))
             else:
-                lon = np.append(lon, foot[i])
+                lon = np.append(lon, float(foot[i]))
     logger.info("Satellite Latitude: %s", lat)
     logger.debug("len(sat_lat) = %s", len(lat))
     logger.debug("type(sat_lat) = %s", type(lat))
@@ -583,7 +583,7 @@ def main():
         band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen)
         logger.info("Changed reflectance to radiance for band %s", str(i+1))
         sixs_boa = sixs_surf(a, b, band_rad)
-        logger.info("Determiend BOA reflectance using 6S parameters.")
+        logger.info("Determined BOA reflectance using 6S parameters.")
         if i < 8:
             name = ''.join(["B",str(i+1)]) #Band names as in original MTD data.
             band_gs = create_tiff(
