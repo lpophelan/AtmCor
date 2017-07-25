@@ -161,7 +161,7 @@ def sol_irr(solar_file):
             if "<U>" in lines:
                 conv_coef = float(lines.strip().replace("<U>","</U>"). \
                    strip("</U>"))
-                logger.debug(lines.strip().replace("<U>","</U>").strip("</U>")
+                logger.debug(lines.strip().replace("<U>","</U>").strip("</U>"))
             elif "SOLAR_IRR" in lines:
                 x = lines.replace("W/m\xc2\xb2/\xc2\xb5m","x"). \
                     strip("SOLAR_IRRADIANCE")
@@ -226,12 +226,18 @@ def lat_and_long(global_file):
                 lat = np.append(lat, foot[i])
             else:
                 lon = np.append(lon, foot[i])
-    logger.info("Satellite Latitude: %s", sat_lat)
-    logger.debug("len(sat_lat) = %s", len(sat_lat))
-    logger.debug("type(sat_lat) = %s", type(sat_lat))
-    logger.info("Satellite Longitude: %s", sat_lon)
-    logger.debug("len(sat_lon) = %s", len(sat_lon)
-    logger.debug("type(sat_lon) = %s", type(sat_lon))
+    logger.info("Satellite Latitude: %s", lat)
+    logger.debug("len(sat_lat) = %s", len(lat))
+    logger.debug("type(sat_lat) = %s", type(lat))
+    logger.info("Satellite Longitude: %s", lon)
+    logger.debug("len(sat_lon) = %s", len(lon))
+    logger.debug("type(sat_lon) = %s", type(lon))
+    #S2A metadata is not consistent. Some files only have 4 or 5 lat/lons.
+    #Hence calculate and return the means.
+    lat = float(np.mean(lat))
+    logger.info("Average Satellite Latitude: %s", lat)
+    lon = float(np.mean(lon))
+    logger.info("Average Satellite Longitude: %s", lon)
     return lat, lon
 
 def sun_ang(sun_file):
@@ -420,8 +426,6 @@ def sixs_func(
     logger.debug("Solar and Viewing paramater types: %s | %s | %s | %s",
         type(solar_zenith), type(solar_azimuth),
         type(view_zenith), type(view_azimuth))
-    logger.debug("Month and day parameters: %s %s | %s %s",
-        month, type(month), day, type(day))
     s.geometry.solar_z = float(solar_zenith)
     logger.info("SixS Geometry: Solar Z = %s", s.geometry.solar_z)
     s.geometry.solar_a = float(solar_azimuth)
@@ -430,10 +434,10 @@ def sixs_func(
     logger.info("SixS Geometry: View Z = %s", s.geometry.view_z)
     s.geometry.view_a = float(view_azimuth)
     logger.info("SixS Geometry: View A = %s", s.geometry.view_z)
-    logger.debug("Input month = %s", month, type(month))
+    logger.debug("Input month = %s | %s", month, type(month))
     s.geometry.month = int(month)
     logger.info("SixS Geometry: Month = %s", s.geometry.month)
-    logger.debug("Input day = %s", day, type(day))
+    logger.debug("Input day = %s | %s", day, type(day))
     s.geometry.day = int(day)
     logger.info("SixS Geometry: Solar Z = %s", s.geometry.day)
     logger.info("6S Geometry: %s ",s.geometry)
@@ -570,8 +574,8 @@ def main():
         logger.debug("Filepath: %s", fpath)
         with open(fpath, "rb") as ilut_file:
             iLUT = pickle.load(ilut_file)
-        logger.debug("Satellite latitude: %s", sat_lat[i])
-        a, b = sixs_func(sat_lat[i], obs_date, obs_date[4:-2], obs_date[-2:],
+        logger.debug("Satellite latitude: %s", sat_lat)
+        a, b = sixs_func(sat_lat, obs_date, obs_date[4:-2], obs_date[-2:],
             sun_zen, sun_azi, view_zen[i], view_azi[i],
             gnd_alt, sixs_s2_wavelengths[i], iLUT)
         band = create_arr(dataset, i+1 ,cols, rows)
@@ -637,9 +641,10 @@ def main():
 #=============================================================================
 if __name__ == "__main__":
     start_time = time.time()
+    logger.info("=====LOG START===== \n %s", start_time)
     main()
     end_time = time.time()
-    logger.info("Run time was %.3f seconds", end_time-start_time)
+    logger.info("\n Completed after %.3f seconds \n ===", end_time-start_time)
     print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
 
