@@ -44,7 +44,7 @@ __author__ = "Liam Phelan"
 __version__ = "1.0"
 __status__ = "Prototype"
 
-logging.basicConfig(filename="S2A-2017_05_08.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # create logger
 logger = logging.getLogger('Main Script')
@@ -83,8 +83,8 @@ def open_s2():
         logger.debug("Appended / to %s", outputPath)
         outputPath = ''.join([outputPath,"/"]) #Data stored in directory.
     tg.generate_geotiffs(inputPath,outputPath)
-    logger.debug("The input file was: %s",inputPath)
-    logger.debug("The processed data was stored in: %s", outputPath) 
+    logger.info("The input file was: %s \n",inputPath)
+    logger.info("The processed data was stored in: %s", outputPath) 
     return inputPath, outputPath
 
 #=============================================================================
@@ -100,6 +100,7 @@ def metadata_get(filename, metadata):
     section of code that will be written to file when found.
     """
     mtd_filname = ''.join([metadata,"_meta_1.txt"])
+    logger.debug("Writing %s to %s",metadata, mtd_filname)
     i = 1
     while os.path.exists('/'.join([os.getcwd(),mtd_filname])):
         #Prevents overwriting old data or bloating the metadata files.	
@@ -117,7 +118,6 @@ def metadata_get(filename, metadata):
                 with open(mtd_filname,"a",encoding='utf-8') as out_file:
                     out_file.write(lines)
     #if not args.quiet:	
-    print("Finished creating metadata relating to %s file." %(metadata))
     logger.info("Created file containing %s metadata.", metadata)
 
 def selected_metadata(inputPath, outputPath):
@@ -127,6 +127,7 @@ def selected_metadata(inputPath, outputPath):
     #Get L1C granule subdirectory path necessary to access that metadata file.
     GranuleSubDir = tg.get_immediate_subdirectories(''.join([
         outputPath,"/",inputPath[:60],".SAFE/GRANULE"]))
+    logger.debug("Stored %s as GranuleSubDir", GranuleSubDir)
     #The following are the desired metadata files that need to be created:
     #Solar reflectance and irradiances.
     metadata_get(''.join(
@@ -147,7 +148,6 @@ def selected_metadata(inputPath, outputPath):
     metadata_get(''.join([outputPath,"/",inputPath[:60],".SAFE/GRANULE/",
         GranuleSubDir[0],"/MTD_TL.xml"]),"Mean_Viewing_Incidence_Angle_List") 
 
-
 def sol_irr(solar_file):
     """
     This function opens a 'solar file', which contains the information 
@@ -161,15 +161,17 @@ def sol_irr(solar_file):
             if "<U>" in lines:
                 conv_coef = float(lines.strip().replace("<U>","</U>"). \
                    strip("</U>"))
+                logger.debug(lines.strip().replace("<U>","</U>").strip("</U>")
             elif "SOLAR_IRR" in lines:
                 x = lines.replace("W/m\xc2\xb2/\xc2\xb5m","x"). \
                     strip("SOLAR_IRRADIANCE")
                 x = lines.replace("W/m²/µm","x").strip("SOLAR_IRRADIANCE")
+                logger.debug("Solar Irradiance: %s", x)
                 sol_irr = np.append(sol_irr,(x.strip(). \
                     replace('<SOLAR_IRRADIANCE bandId="',"Band").replace(
                     '" unit="x">',"|").replace("</SOLAR_IRRADIANCE>","")))
-    logger.debug("Solar irradiance: %s", sol_irr)
-    logger.debug("Conversion coefficient: %s", conv_coef)
+    logger.info("Solar irradiance: %s", sol_irr)
+    logger.info("Conversion coefficient: %s", conv_coef)
     return sol_irr, conv_coef
 
 def band_wave(wavelength_file):
@@ -178,6 +180,7 @@ def band_wave(wavelength_file):
     format to useable data.
     """
     with open(wavelength_file,"r",encoding='utf-8') as wave_info:
+        logger.debug("Opened file: %s", wavelength_file)
         min_wave = []
         max_wave = []
         mid_wave = []
@@ -201,9 +204,9 @@ def band_wave(wavelength_file):
                     if i.isdigit() or i == ".":
                         midi = ''.join([midi,str(i)])
                 mid_wave = np.append(mid_wave,midi)
-    logger.debug("Minimum wavelength for some band: %s", min_wave)
-    logger.debug("Central wavelength for some band: %s", mid_wave)
-    logger.debug("Maximum wavelength for some band: %s", max_wave)
+    logger.info("Minimum wavelength for some band: %s", min_wave)
+    logger.info("Central wavelength for some band: %s", mid_wave)
+    logger.info("Maximum wavelength for some band: %s", max_wave)
     return min_wave, mid_wave, max_wave
 
 def lat_and_long(global_file):
@@ -223,8 +226,12 @@ def lat_and_long(global_file):
                 lat = np.append(lat, foot[i])
             else:
                 lon = np.append(lon, foot[i])
-    logger.debug("Latitude: %s %s", lat, type(lat))
-    logger.debug("Longitude: %s %s", lon, type(lon))
+    logger.info("Satellite Latitude: %s", sat_lat)
+    logger.debug("len(sat_lat) = %s", len(sat_lat))
+    logger.debug("type(sat_lat) = %s", type(sat_lat))
+    logger.info("Satellite Longitude: %s", sat_lon)
+    logger.debug("len(sat_lon) = %s", len(sat_lon)
+    logger.debug("type(sat_lon) = %s", type(sat_lon))
     return lat, lon
 
 def sun_ang(sun_file):
@@ -234,12 +241,15 @@ def sun_ang(sun_file):
     """
     angles = []
     with open(sun_file,"r",encoding='utf-8') as sun_info:
+        logger.debug("Opened file: %s", sun_file)
         for line in sun_info:
             if "ANGLE" in line:
                 x = line.split('"deg">')
+                logger.debug(x)
                 x = x[1].split('</')
+                logger.debug(x)
                 angles = np.append(angles,float(x[0]))
-    logger.debug("Sun zenith and azimuth angles: %s", angles)
+    logger.info("Sun zenith and azimuth angles: %s", angles)
     return angles #Returns zenith and azimuth angles respectively
 
 def view_ang(view_file):
@@ -289,8 +299,10 @@ def view_ang(view_file):
             i = 9
         else:
             i+=1
-    logger.debug("Viewing zenith angles: %s", view_zen)
-    logger.debug("Viewing azimuth angles: %s", view_azi)
+    logger.info("Viewing zenith angles: %s", view_zen)
+    logger.debug("len(view_zen) = %s", len(view_zen))
+    logger.info("Viewing azimuth angles: %s", view_azi)
+    logger.debug("len(view_azi) = %s", len(view_azi))
     return view_zen, view_azi
 #=============================================================================
 
@@ -312,6 +324,8 @@ def s2_adjust(band_id, solar_corrected, sun_zenith):
     rho = pi*L/E_s * cos(Theta_s)
     """
     scale_factor = 10000 #Scale factor used for the reflectance values.
+    logger.info("Scale factor used for the reflectance values: %s",
+        scale_factor)
     band_id = np.array(band_id)
     band_id = (band_id 
         * float(solar_corrected) 
@@ -380,10 +394,10 @@ def sixs_func(
     s = SixS()
     try:
         if s.test() != 0:
-            logger.error("Py6S test failed to return correct response.")
+            logger.warning("Py6S test failed to return correct response.")
             raise ValueError("6S test not functioning correctly, returned 0.")
     except NameError:
-        logger.error("Python 6S failed to initialise.")
+        logger.critical("Python 6S failed to initialise.")
         raise NameError()
     #Run 6S simulation defined by SixS object across the whole VNIR range.
     #wavelengths, results = SixSHelpers.Wavelengths.run_vnir(
@@ -409,33 +423,40 @@ def sixs_func(
     logger.debug("Month and day parameters: %s %s | %s %s",
         month, type(month), day, type(day))
     s.geometry.solar_z = float(solar_zenith)
-    print(s.geometry.solar_z)
     logger.info("SixS Geometry: Solar Z = %s", s.geometry.solar_z)
     s.geometry.solar_a = float(solar_azimuth)
+    logger.info("SixS Geometry: Solar A = %s", s.geometry.solar_a)
     s.geometry.view_z = float(view_zenith)
+    logger.info("SixS Geometry: View Z = %s", s.geometry.view_z)
     s.geometry.view_a = float(view_azimuth)
+    logger.info("SixS Geometry: View A = %s", s.geometry.view_z)
+    logger.debug("Input month = %s", month, type(month))
     s.geometry.month = int(month)
+    logger.info("SixS Geometry: Month = %s", s.geometry.month)
+    logger.debug("Input day = %s", day, type(day))
     s.geometry.day = int(day)
-    logger.debug("6S Geometry: %s ",s.geometry)
+    logger.info("SixS Geometry: Solar Z = %s", s.geometry.day)
+    logger.info("6S Geometry: %s ",s.geometry)
     s.altitudes = Altitudes()
     s.altitudes.set_target_custom_altitude(target_altitude)
     s.altitudes.set_sensor_satellite_level()
-    logger.debug("6S Altitude: %s ",s.altitudes)
-    logger.debug("6S Wavelength: %s", band_wavelength)
-    print(band_wavelength, type(band_wavelength))
+    logger.info("6S Altitude: %s ",s.altitudes)
+    logger.info("6S Wavelength: %s", band_wavelength)
+    logger.debug("6S Wavelength: %s", type(band_wavelength))
     s.wavelength = Wavelength(getattr(PredefinedWavelengths,band_wavelength))
     #Similarly to ground reflectance, can improve the choice here.
     s.atmos_corr = AtmosCorr.AtmosCorrLambertianFromReflectance(0.23)
+    logger.info("6S AtmosCorr: %s", s.atmos_corr)
     try:
         logger.debug("Debug report")
         s.produce_debug_report()
-        logger.debug(s.produce_debug_report())
+        #logger.debug(s.produce_debug_report()) #Doesn't log debug report
     except TypeError:
         logger.warning("Failed to produce debug report")
-            
     s.run()
     file_out = ''.join(["6S_outputs_",str(band_wavelength),".txt"])
     s.outputs.write_output_file(file_out)
+    logger.info("Outputs written to %s", file_out)
     sp.call(["cat",file_out])
     """
     An interpolated look-up table requires the following input variables 
@@ -449,14 +470,16 @@ def sixs_func(
     #Should replace the hard values with a function which calls the correct
     #value from the 
     water_vapour = 1.349 #g/cm2
+    logger.info("6S Water vapour = %s g/cm2", water_vapour)
     ozone = 0.343 #cm-atm
+    logger.info("6S Ozone: %s cm-atm", ozone)
     aerosol_optical_thickness = 0.5
-    surface_altitude = target_altitude
+    logger.info("6S AOT: %s", aerosol_optical_thickness)
+    logger.info("Surface altitude: %s km", target_altitude)
     a, b = iLUT(
         solar_zenith, water_vapour, 
         ozone, aerosol_optical_thickness, 
-        surface_altitude)
-    print(a,b)
+        target_altitude)
     logger.info("Corrrection coefficients for Py6S: %s %s", a, b)
     return a, b
 
@@ -466,6 +489,7 @@ def sixs_surf(cor_a, cor_b, sen_rad):
     returns a value for the surface reflectance.
     """
     ρ = (sen_rad - cor_a) / cor_b
+    logger.info("Surface reflectance = %s", ρ)
     return ρ
 #=============================================================================
 
@@ -487,6 +511,7 @@ def main():
     #Create a function to collect wavelengths
     #band_lambdas = wave_fun("Wavelength_meta_1.txt")
     sat_lat, sat_lon = lat_and_long("Global_Footprint_meta_1.txt")
+
     #Produce a tuple for the average solar zenith and azimuth angles.
     sun_zen, sun_azi = sun_ang("Mean_Sun_meta_1.txt")
     #Produce a tuple for the average viewing zenith and azimuth angles.
@@ -545,15 +570,16 @@ def main():
         logger.debug("Filepath: %s", fpath)
         with open(fpath, "rb") as ilut_file:
             iLUT = pickle.load(ilut_file)
+        logger.debug("Satellite latitude: %s", sat_lat[i])
         a, b = sixs_func(sat_lat[i], obs_date, obs_date[4:-2], obs_date[-2:],
             sun_zen, sun_azi, view_zen[i], view_azi[i],
             gnd_alt, sixs_s2_wavelengths[i], iLUT)
         band = create_arr(dataset, i+1 ,cols, rows)
-        logger.debug("Created array for band %s", str(i+1))
+        logger.info("Created array for band %s", str(i+1))
         band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen)
-        logger.debug("Changed reflectance to radiance for band %s", str(i+1))
+        logger.info("Changed reflectance to radiance for band %s", str(i+1))
         sixs_boa = sixs_surf(a, b, band_rad)
-        logger.debug("Determiend BOA reflectance using 6S parameters.")
+        logger.info("Determiend BOA reflectance using 6S parameters.")
         if i < 8:
             name = ''.join(["B",str(i+1)]) #Band names as in original MTD data.
             band_gs = create_tiff(
@@ -595,6 +621,11 @@ def main():
     print("100 - done.")
     sp.call(radiance_bands)
     sp.call(smac_bands)
+    cur_dir = os.listdir()
+    for i in range(len(cur_dir)):
+        if cur_dir[i].endswith(".tif") or cur_dir[i].endswith(".txt"):
+            sp.call(["mv",cur_dir[i],outputPath])
+            logger.info("Moved %s to %s", cur_dir[i], outputPath)
     #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
     #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
     #Errors when gdalwarp called as above, but the equivalent 
@@ -611,3 +642,4 @@ if __name__ == "__main__":
     logger.info("Run time was %.3f seconds", end_time-start_time)
     print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
+
