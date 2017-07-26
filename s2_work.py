@@ -88,6 +88,24 @@ def open_s2():
     logger.info("The processed data was stored in: %s", outputPath) 
     return inputPath, outputPath
 
+def multi_open():
+    """
+    Searches through the directory for .zip or .SAFE files and stores them 
+    as a list.
+    """
+    var = os.listdir()
+    match = []
+    for i in range(len(var)):
+        if var[i].endswith(".zip") or var[i].endswith(".SAFE"):
+            match.append(var[i])
+            logging.debug("Product found: %s", var[i])
+    if len(match) > 0:
+        logging.info("Possible products found: %s", match)
+        return match
+    else:
+        logging.warning("No data found matching S2 products in directory.")
+        return None
+
 #=============================================================================
 
 #=============================================================================
@@ -129,25 +147,31 @@ def selected_metadata(inputPath, outputPath):
     GranuleSubDir = tg.get_immediate_subdirectories(''.join([
         outputPath,"/",inputPath[:60],".SAFE/GRANULE"]))
     logger.debug("Stored %s as GranuleSubDir", GranuleSubDir)
+    MTD_MSIL1C = ''.join(
+        [outputPath,"/",inputPath[:60],".SAFE/MTD_MSIL1C.xml"])
+    MTD_TL = ''.join([
+        outputPath,"/",inputPath[:60],
+        ".SAFE/GRANULE/",GranuleSubDir[0],"/MTD_TL.xml"])
+    logger.debug("Metadata path: %s", MTD_MSIL1C)
+    logger.debug("Metadata path: %s", MTD_TL)
     #The following are the desired metadata files that need to be created:
     #Solar reflectance and irradiances.
-    metadata_get(''.join(
-        [outputPath,"/",inputPath[:60],".SAFE/MTD_MSIL1C.xml"]),
-        "Reflectance_Conversion")
+    metadata_get(MTD_MSIL1C,"Reflectance_Conversion")
     #The global footprint
-    metadata_get(''.join(
-        [outputPath,"/",inputPath[:60],".SAFE/MTD_MSIL1C.xml"]),
-        "Global_Footprint")
+    metadata_get(MTD_MSIL1C,"Global_Footprint")
     #The wavelengths for the different bands.
-    metadata_get(''.join(
-        [outputPath,"/",inputPath[:60],".SAFE/MTD_MSIL1C.xml"]),
-        "Wavelength")  
+    metadata_get(MTD_MSIL1C,"Wavelength")
+    #Get the Scale factor  
+    with open(MTD_MSIL1C,"r", encoding="utf-8") as f: 
+        for line in f:
+            if "QUANTIFICATION" in line:
+                scale_factor = line.split(">")[1].split("<")[0]
+                logger.info(scale_factor)
     #Solar zenith and azimuth angles.
-    metadata_get(''.join([outputPath,"/",inputPath[:60],".SAFE/GRANULE/",
-        GranuleSubDir[0],"/MTD_TL.xml"]),"Mean_Sun") 
+    metadata_get(MTD_TL,"Mean_Sun") 
     #Mean viewing angles.
-    metadata_get(''.join([outputPath,"/",inputPath[:60],".SAFE/GRANULE/",
-        GranuleSubDir[0],"/MTD_TL.xml"]),"Mean_Viewing_Incidence_Angle_List") 
+    metadata_get(MTD_TL,"Mean_Viewing_Incidence_Angle_List") 
+    return scale_factor
 
 def sol_irr(solar_file):
     """
@@ -324,13 +348,12 @@ def create_arr(tif_data, band_no,cols, rows, ):
     data = band.ReadAsArray(0,0, cols,rows) #Sets it as an array.
     return data
 
-def s2_adjust(band_id, solar_corrected, sun_zenith):
+def s2_adjust(band_id, solar_corrected, sun_zenith, scale_factor):
     """
     Reads in the array for some S2 band and adjusts the pixel data to return 
     TOA radiance.
     rho = pi*L/E_s * cos(Theta_s)
     """
-    scale_factor = 10000 #Scale factor used for the reflectance values.
     logger.info("Scale factor used for the reflectance values: %s",
         scale_factor)
     band_id = np.array(band_id)
@@ -497,9 +520,9 @@ def sixs_surf(cor_a, cor_b, sen_rad):
 #=============================================================================
 #5: Combine the functions for a sample output when this script's called alone.
 def main():
-    inputPath, outputPath = open_s2() #Opens a Sentinel-2 product.
     obs_date = (inputPath.split("_"))[2].split("T")[0] #Get observation date.
-    selected_metadata(inputPath, outputPath) #Create metadata files.
+    sf = selected_metadata(inputPath, outputPath) #Get MTD & scale factor.
+    sf = float(sf)
     #Correct solar irradiance for reflectance at measurement Earth's position:
     sol_irr_at_sat, correction_coefficient = sol_irr(
         "Reflectance_Conversion_meta_1.txt")
@@ -512,7 +535,6 @@ def main():
     #Create a function to collect wavelengths
     #band_lambdas = wave_fun("Wavelength_meta_1.txt")
     sat_lat, sat_lon = lat_and_long("Global_Footprint_meta_1.txt")
-
     #Produce a tuple for the average solar zenith and azimuth angles.
     sun_zen, sun_azi = sun_ang("Mean_Sun_meta_1.txt")
     #Produce a tuple for the average viewing zenith and azimuth angles.
@@ -577,7 +599,7 @@ def main():
             gnd_alt, sixs_s2_wavelengths[i], iLUT)
         band = create_arr(dataset, i+1 ,cols, rows)
         logger.info("Created array for band %s", str(i+1))
-        band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen)
+        band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen, sf)
         logger.info("Changed reflectance to radiance for band %s", str(i+1))
         sixs_boa = sixs_surf(a, b, band_rad)
         logger.info("Determined BOA reflectance using 6S parameters.")
@@ -640,7 +662,24 @@ if __name__ == "__main__":
     start_time = time.time()
     st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
     logger.info("\n =====LOG START===== \n %s", st_gmt)
-    main()
+    products = multi_open()
+    try:
+        for i in range(len(products)):
+            logger.debug("Parsing %s of %s", i+1, len(products))
+            inputPath = products[i]
+            outputPath = '_'.join([
+                products[i].split("_")[0],
+                products[i].split("_")[2].split("T")[0]])
+            outputPath = ''.join([outputPath,"/"]) #Data stored in directory.
+            tg.generate_geotiffs(inputPath,outputPath)
+            logger.info("The input file was: %s \n",inputPath)
+            logger.info("The processed data was stored in: %s", outputPath)
+            main() 
+    except TypeError:
+        logging.error("Initial attempt at finding product failed.")
+        logging.debug("Select single product manually.")
+        inputPath, outputPath = open_s2() #Opens a Sentinel-2 product.
+        main()
     end_time = time.time()
     logger.info("Completed after %.3f seconds", end_time-start_time)
     print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
