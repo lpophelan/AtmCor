@@ -12,10 +12,31 @@
  
 # Written by O.Hagolle CNES, from the original SMAC C routine
 #=============================================================================================
- 
+
 from math import *
 import numpy as np
- 
+import logging
+
+logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# create logger
+logger = logging.getLogger('SMAC')
+logger.setLevel(logging.DEBUG)
+
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+# create formatter
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# add formatter to ch
+ch.setFormatter(formatter)
+
+# add ch to logger
+logger.addHandler(ch)
+
 #=============================================================================================
  
 def PdeZ(Z) :
@@ -24,6 +45,7 @@ def PdeZ(Z) :
  
     """
     p = 1013.25 * pow( 1 - 0.0065 * Z / 288.15 , 5.31 )
+    logger.debug("Atmospheric Pressure: %s hpa", p)
     return(p)
 #=============================================================================================
  
@@ -171,14 +193,19 @@ def smac_inv( r_toa, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coef)
     #/*------:  calcul de la reflectance de surface  smac               :--------*/
  
     us = cos (tetas * cdr)
+    logger.debug("Sun = cos (tetas * cdr) = cos (%s * %s)", tetas, cdr)
     uv = cos (tetav * cdr)
-    Peq= pressure/1013.25 
+    logger.debug("View = cos (tetav * cdr) = cos (%s * %s)", tetav, cdr)
+    Peq= pressure/1013.25
+    logger.debug("Peq = pressure/1013.25 = %s", Peq) 
  
     #/*------:  1) air mass */
     m =  1/us + 1/uv
+    logger.debug("Air mass: %s", m)
  
     #/*------:  2) aerosol optical depth in the spectral band, taup     :--------*/
     taup = (a0taup) + (a1taup) * taup550 
+    logger.debug("SMAC: Aerosol Optical Depth = %s", taup)
  
     #/*------:  3) gaseous transmissions (downward and upward paths)    :--------*/
     to3 = 1.
@@ -273,7 +300,8 @@ def smac_inv( r_toa, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coef)
  
     r_surf = r_toa - (atm_ref * tg)
     r_surf = r_surf / ( (tg * ttetas * ttetav) + (r_surf * s) ) 
- 
+    logger.debug("SMAC: Surface reflectance = %s", r_surf) 
+
     return r_surf
  
 #=======================================================================================================
@@ -339,15 +367,20 @@ def smac_dir ( r_surf, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coe
     #/*------:  calcul de la reflectance de surface  smac               :--------*/
  
     us = cos (tetas * cdr)
+    logger.debug("Sun = cos (tetas * cdr) = cos (%s * %s)", tetas, cdr)
     uv = cos (tetav * cdr)
-    Peq= pressure/1013.25 
+    logger.debug("View = cos (tetav * cdr) = cos (%s * %s)", tetav, cdr)
+    Peq= pressure/1013.25
+    logger.debug("Peq = pressure/1013.25 = %s", Peq) 
  
     #/*------:  1) air mass */
     m =  1/us + 1/uv
+    logger.debug("Air mass: %s", m)
  
     #/*------:  2) aerosol optical depth in the spectral band, taup     :--------*/
     taup = (a0taup) + (a1taup) * taup550 
- 
+    logger.debug("SMAC: Aerosol Optical Depth = %s", taup)
+
     #/*------:  3) gaseous transmissions (downward and upward paths)    :--------*/
     to3 = 1.
     th2o= 1.
@@ -440,7 +473,8 @@ def smac_dir ( r_surf, tetas, phis, tetav, phiv,pressure,taup550, uo3, uh2o, coe
     #/*------:  15) TOA reflectance                 :--------*/
  
     r_toa = r_surf*tg*ttetas*ttetav/(1-r_surf*s) + (atm_ref * tg) 
- 
+    logger.debug("SMAC: TOA reflectance = %s", r_toa) 
+
     return r_toa
  
 #=============================================================================
