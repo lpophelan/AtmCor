@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding=utf-8
 """
 Description of this script here.
@@ -25,12 +25,12 @@ implementation of the CNES SMAC tool and Py6S.
 """
 
 import logging
-import os #Necessary for the running of: 2
+import os #Necessary for the running of: 1, 2
 import time #Necessary for the running of: 5
 import gdal #Necessary for the running of: 5
 import pickle #Necessary for the running of: 4
-import numpy as np #Necessary for the running of: 2, 5
-import subprocess as sp #Necessary for the running of: 5
+import numpy as np #Necessary for the running of: 2, 3, 5
+import subprocess as sp #Necessary for the running of: 4.B, 5
 
 from gdalconst import * #Necessary for the running of: 3, 5
 from Py6S import * #Necessary for the running of: 4.B
