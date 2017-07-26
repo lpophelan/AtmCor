@@ -38,10 +38,11 @@ from Py6S import * #Necessary for the running of: 4.B
 import tiffgenerator as tg #Necessary for the running of: 1,2
 import rastercr as rc #Necessary for the running of: 3
 import smac #Necessary for the running of: 4.A
+import sixsoutread #Necessary for the running of: 4.B
 
 #Authorship information next:
 __author__ = "Liam Phelan"
-__version__ = "1.0"
+__version__ = "0.1"
 __status__ = "Prototype"
 
 logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -471,12 +472,8 @@ def sixs_func(
         aerosol optical thickness [unitless] (0 - 3)
         surface altitude [km] (0 - 7.75)
     """
-    #Should replace the hard values with a function which calls the correct
-    #value from the 
-    water_vapour = 1.349 #g/cm2
-    logger.info("6S Water vapour = %s g/cm2", water_vapour)
-    ozone = 0.343 #cm-atm
-    logger.info("6S Ozone: %s cm-atm", ozone)
+    s_outputs = sixsoutread.sixsread(file_out)
+    water_vapour, ozone = sixsoutread.wv_and_ozone(s_outputs)
     aerosol_optical_thickness = 0.5
     logger.info("6S AOT: %s", aerosol_optical_thickness)
     logger.info("Surface altitude: %s km", target_altitude)
@@ -629,7 +626,7 @@ def main():
     for i in range(len(cur_dir)):
         if cur_dir[i].endswith(".tif") or cur_dir[i].endswith(".txt"):
             sp.call(["mv",cur_dir[i],outputPath])
-            logger.info("Moved %s to %s", cur_dir[i], outputPath)
+            logger.debug("Moved %s to %s", cur_dir[i], outputPath)
     #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
     #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
     #Errors when gdalwarp called as above, but the equivalent 
@@ -641,10 +638,11 @@ def main():
 #=============================================================================
 if __name__ == "__main__":
     start_time = time.time()
-    logger.info("=====LOG START===== \n %s", start_time)
+    st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
+    logger.info("\n =====LOG START===== \n %s", st_gmt)
     main()
     end_time = time.time()
-    logger.info("\n Completed after %.3f seconds \n ===", end_time-start_time)
+    logger.info("Completed after %.3f seconds", end_time-start_time)
     print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
 
