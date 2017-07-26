@@ -670,7 +670,7 @@ if __name__ == "__main__":
     products = multi_open(os.getcwd())
     try:
         for i in range(len(products)):
-            logger.debug("Parsing %s of %s", i+1, len(products))
+            logger.info("Parsing %s of %s", i+1, len(products))
             inputPath = products[i]
             outputPath = '_'.join([
                 products[i].split("_")[0],

@@ -36,6 +36,28 @@ import time
 
 from osgeo import gdal
 
+import logging
+
+logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# create logger
+logger = logging.getLogger('gdal_merge.py')
+logger.setLevel(logging.DEBUG)
+
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+
+# create formatter
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# add formatter to ch
+ch.setFormatter(formatter)
+
+# add ch to logger
+logger.addHandler(ch)
+
 try:
     progress = gdal.TermProgress_nocb
 except:
@@ -146,11 +168,17 @@ def names_to_fileinfos( names ):
     """
 
     file_infos = []
+    logger.debug("names to fileinfos: %s", names)
     for name in names:
         fi = file_info()
         if fi.init_from_name( name ) == 1:
             file_infos.append( fi )
-
+    logger.debug("file infos: %s", file_infos)
+    try:
+        logger.debug("len(file_infos) = %s", len(file_infos))
+    except TypeError:
+        logger.debug("type(file_infos): %s", type(file_infos))
+        raise TypeError("file_infos is not a list.")
     return file_infos
 
 # *****************************************************************************
