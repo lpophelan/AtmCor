@@ -88,22 +88,27 @@ def open_s2():
     logger.info("The processed data was stored in: %s", outputPath) 
     return inputPath, outputPath
 
-def multi_open():
+def multi_open(directory):
     """
-    Searches through the directory for .zip or .SAFE files and stores them 
+    Searches through a directory for .zip or .SAFE files and stores them 
     as a list.
     """
+    try:
+        os.chdir(directory)
+    except OSError:
+        logger.error("%s does not exist or can not be accessed.", directory)
+        raise OSError
     var = os.listdir()
     match = []
     for i in range(len(var)):
         if var[i].endswith(".zip") or var[i].endswith(".SAFE"):
             match.append(var[i])
-            logging.debug("Product found: %s", var[i])
+            logger.debug("Product found: %s", var[i])
     if len(match) > 0:
-        logging.info("Possible products found: %s", match)
+        logger.info("Possible products found: %s", match)
         return match
     else:
-        logging.warning("No data found matching S2 products in directory.")
+        logger.warning("No data found matching S2 products in directory.")
         return None
 
 #=============================================================================
@@ -662,7 +667,7 @@ if __name__ == "__main__":
     start_time = time.time()
     st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
     logger.info("\n =====LOG START===== \n %s", st_gmt)
-    products = multi_open()
+    products = multi_open(os.getcwd())
     try:
         for i in range(len(products)):
             logger.debug("Parsing %s of %s", i+1, len(products))
@@ -676,8 +681,8 @@ if __name__ == "__main__":
             logger.info("The processed data was stored in: %s", outputPath)
             main() 
     except TypeError:
-        logging.error("Initial attempt at finding product failed.")
-        logging.debug("Select single product manually.")
+        logger.error("Initial attempt at finding product failed.")
+        logger.debug("Select single product manually.")
         inputPath, outputPath = open_s2() #Opens a Sentinel-2 product.
         main()
     end_time = time.time()
