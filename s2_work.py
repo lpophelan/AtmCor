@@ -24,7 +24,12 @@ implementation of the CNES SMAC tool and Py6S.
 5. A main function for whenever this script is called independently.
 """
 
+#=============================================================================
+#0: Importing modules and preparing context, etc.
 import logging
+import argparse
+import glob
+import shutil
 import os #Necessary for the running of: 1, 2
 import time #Necessary for the running of: 5
 import gdal #Necessary for the running of: 5
@@ -45,77 +50,72 @@ __author__ = "Liam Phelan"
 __version__ = "0.1"
 __status__ = "Prototype"
 
-logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure Argument Parser
+parser = argparse.ArgumentParser(
+    prog = 'Atmospheric Correction for S2',
+    description='Open a Sentinel-2 product and apply atmospheric correction.')
+# Specify parser options that conflict with each other
+# Add arguments to parse logger level
+parser.add_argument("-l", "--logger",
+    help = "Set the logger level, e.g. <-l DEBUG>",
+    type = str)
+parser.add_argument("-d", "--directory",
+    help = "Pass in a products directory location.",
+    type = str)
+parser.add_argument("-o", "--output",
+    help = "Choose a location to store the extracted and processed data.",
+    type = str)
+parser.add_argument("-s", "--satellite",
+    help = "Specify the desired product type, e.g. Sentinel 2 as S2*.zip.",
+    type = str)
+# Parse arguments
+args = parser.parse_args()
 
+# Configure Logging
+logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # create logger
 logger = logging.getLogger('Main Script')
-logger.setLevel(logging.DEBUG)
-
+logger.setLevel(getattr(logging,args.logger))
 # create console handler and set level to debug
 ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-
+ch.setLevel(getattr(logging,args.logger))
 # create formatter
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 # add formatter to ch
 ch.setFormatter(formatter)
-
 # add ch to logger
 logger.addHandler(ch)
 
+#=============================================================================
 
 #=============================================================================
-#1: Opening of a zipped S2 L1C Product.
-def open_s2():
+#1: Opening of a zipped S2 L1C Product from a directory.
+def multi_open(path, product):
     """
-    Requests an input location for some S2L1C product, a location to store the 
-    product and then generates a merged .tif file with all the bands.
-    Modified the original tiff-generator code to work when provided with an 
-    extracted .SAFE file.
-    Returns the requested paths.
+    Uses glob.glob() to return a list of zip files within the directory 
+    specified by the path that match the desired product.
+    path = /some/path/to/products/
+    product = full_product_name.zip or S2*.zip
     """
-    inputPath = input(\
-        "Enter the location of the S2A L1C product to be extracted: \n")
-    outputPath = input(\
-        "Choose a location to store the extracted and processed data: \n")
-    if not outputPath.endswith("/"):
-        logger.debug("Appended / to %s", outputPath)
-        outputPath = ''.join([outputPath,"/"]) #Data stored in directory.
-    tg.generate_geotiffs(inputPath,outputPath)
-    logger.info("The input file was: %s \n",inputPath)
-    logger.info("The processed data was stored in: %s", outputPath) 
-    return inputPath, outputPath
-
-def multi_open(directory):
-    """
-    Searches through a directory for .zip or .SAFE files and stores them 
-    as a list.
-    """
-    try:
-        os.chdir(directory)
-    except OSError:
-        logger.error("%s does not exist or can not be accessed.", directory)
-        raise OSError
-    var = os.listdir()
-    match = []
-    for i in range(len(var)):
-        if var[i].endswith(".zip") or var[i].endswith(".SAFE"):
-            match.append(var[i])
-            logger.debug("Product found: %s", var[i])
-    if len(match) > 0:
-        logger.info("Possible products found: %s", match)
-        return match
+    if os.path.isdir(path):
+        zip_list = glob.glob(os.path.join(path,product))
+        logger.debug(os.path.join(path,product))
+        if len(zip_list) > 0:
+            logger.info("Products found: %s", zip_list)
+            return zip_list
+        else:
+            logger.warning("No data found matching %s in %s", product, path)
+            return None
     else:
-        logger.warning("No data found matching S2 products in directory.")
+        logger.error("%s is not a directory.")
         return None
-
+        
 #=============================================================================
 
 #=============================================================================
 #2: Retrieve metadata that's contained within the MTD_TL & MTD_MSI xml files.
-def metadata_get(filename, metadata):
+def metadata_get(filename, metadata, outputPath):
     """	
     Opens a file which contains some metadata that the user wishes to extract 
     from an .xml file.
@@ -123,22 +123,16 @@ def metadata_get(filename, metadata):
     Within the xml file, the relevant information will be contained within a
     section of code that will be written to file when found.
     """
-    mtd_filname = ''.join([metadata,"_meta_1.txt"])
+    logger.debug("metadata_get function: outputPath = %s", outputPath)
+    mtd_filname = os.path.join(outputPath,''.join([metadata,"_meta.txt"]))
     logger.debug("Writing %s to %s",metadata, mtd_filname)
-    i = 1
-    while os.path.exists('/'.join([os.getcwd(),mtd_filname])):
-        #Prevents overwriting old data or bloating the metadata files.	
-        x = int(mtd_filname[len(metadata)+6:-4])
-        logger.debug("%s already exists, checking for v.%s",mtd_filname,i+1) 
-        i += 1
-        mtd_filname = ''.join([metadata,"_meta_",str(i),".txt"])
     with open(filename, "r",encoding='utf-8') as meta_file:
         pmt = 1 #Parameter to turn on/off when the relevant data is found.
         for lines in meta_file:
             if metadata in lines:
                 pmt *= -1 #Switches the parameter when it is found.
             if pmt < 0:
-                #print("Writing " + metadata +" to file.")
+                logger.debug("Writing %s to %s", metadata, mtd_filname)
                 with open(mtd_filname,"a",encoding='utf-8') as out_file:
                     out_file.write(lines)
     #if not args.quiet:	
@@ -148,24 +142,26 @@ def selected_metadata(inputPath, outputPath):
     """
     Function uses the metadata_get function to create the desired meta-files.
     """
+    logger.debug("Selected metadata inputPath: %s", inputPath)
+    logger.debug("Selected metadata outputPath: %s", outputPath)
+    base_safe = os.path.join(outputPath,
+            inputPath.split("/")[-1].replace(".zip",".SAFE"))
+    logger.debug("Path to SAFE subdirectories: %s", base_safe)
     #Get L1C granule subdirectory path necessary to access that metadata file.
-    GranuleSubDir = tg.get_immediate_subdirectories(''.join([
-        outputPath,"/",inputPath[:60],".SAFE/GRANULE"]))
+    GranuleSubDir = tg.get_immediate_subdirectories(os.path.join(
+        base_safe, "GRANULE"))
     logger.debug("Stored %s as GranuleSubDir", GranuleSubDir)
-    MTD_MSIL1C = ''.join(
-        [outputPath,"/",inputPath[:60],".SAFE/MTD_MSIL1C.xml"])
-    MTD_TL = ''.join([
-        outputPath,"/",inputPath[:60],
-        ".SAFE/GRANULE/",GranuleSubDir[0],"/MTD_TL.xml"])
+    MTD_MSIL1C = os.path.join(base_safe,"MTD_MSIL1C.xml")
+    MTD_TL = os.path.join(base_safe,"GRANULE",GranuleSubDir[0],"MTD_TL.xml")
     logger.debug("Metadata path: %s", MTD_MSIL1C)
     logger.debug("Metadata path: %s", MTD_TL)
     #The following are the desired metadata files that need to be created:
     #Solar reflectance and irradiances.
-    metadata_get(MTD_MSIL1C,"Reflectance_Conversion")
+    metadata_get(MTD_MSIL1C,"Reflectance_Conversion", outputPath)
     #The global footprint
-    metadata_get(MTD_MSIL1C,"Global_Footprint")
+    metadata_get(MTD_MSIL1C,"Global_Footprint", outputPath)
     #The wavelengths for the different bands.
-    metadata_get(MTD_MSIL1C,"Wavelength")
+    metadata_get(MTD_MSIL1C,"Wavelength", outputPath)
     #Get the Scale factor  
     with open(MTD_MSIL1C,"r", encoding="utf-8") as f: 
         for line in f:
@@ -173,9 +169,9 @@ def selected_metadata(inputPath, outputPath):
                 scale_factor = line.split(">")[1].split("<")[0]
                 logger.info(scale_factor)
     #Solar zenith and azimuth angles.
-    metadata_get(MTD_TL,"Mean_Sun") 
+    metadata_get(MTD_TL,"Mean_Sun",outputPath) 
     #Mean viewing angles.
-    metadata_get(MTD_TL,"Mean_Viewing_Incidence_Angle_List") 
+    metadata_get(MTD_TL,"Mean_Viewing_Incidence_Angle_List",outputPath) 
     return scale_factor
 
 def sol_irr(solar_file):
@@ -368,7 +364,7 @@ def s2_adjust(band_id, solar_corrected, sun_zenith, scale_factor):
         / (np.pi*scale_factor))
     return band_id
 
-def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
+def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight,outputPath):
     """
     Re-normalize to GS range (0-255).
     Then creates a tiff for some input data.
@@ -378,7 +374,7 @@ def create_tiff(data,name,rasterOrigin,pixelWidth,pixelHeight):
         if max(data[i]) > max_data:	
             max_data = max(data[i])
     data = data/(max_data/255)
-    newRasterfn = ''.join([name,'.tif'])
+    newRasterfn = os.path.join(outputPath,''.join([name,'.tif']))
     rc.main(newRasterfn,rasterOrigin,pixelWidth,pixelHeight,data)
     logger.debug("Raster file created.")
     return data
@@ -422,7 +418,7 @@ def smac_func(band_no,r_toa,azimuth_view,azimuth_sun,zenith_view,zenith_sun,
 def sixs_func(
     satellite_latitude, observation_date, month, day,
     solar_zenith, solar_azimuth, view_zenith, view_azimuth,
-    target_altitude, band_wavelength, iLUT):
+    target_altitude, band_wavelength, iLUT, outputPath):
     """
     Do analysis with 6S function.
     """
@@ -480,17 +476,18 @@ def sixs_func(
     #Similarly to ground reflectance, can improve the choice here.
     s.atmos_corr = AtmosCorr.AtmosCorrLambertianFromReflectance(0.23)
     logger.info("6S AtmosCorr: %s", s.atmos_corr)
-    try:
-        logger.debug("Debug report")
-        s.produce_debug_report()
-        #logger.debug(s.produce_debug_report()) #Doesn't log debug report
-    except TypeError:
-        logger.warning("Failed to produce debug report")
+    if args.logger == "DEBUG":    
+        try:
+            logger.debug("Debug report")
+            s.produce_debug_report()
+            #logger.debug(s.produce_debug_report()) #Doesn't log debug report
+        except TypeError:
+            logger.warning("Failed to produce debug report")
     s.run()
-    file_out = ''.join(["6S_outputs_",str(band_wavelength),".txt"])
+    file_out = os.path.join(
+        outputPath,''.join(["6S_outputs_",str(band_wavelength),".txt"]))
     s.outputs.write_output_file(file_out)
     logger.info("Outputs written to %s", file_out)
-    sp.call(["cat",file_out])
     """
     An interpolated look-up table requires the following input variables 
     (in order) to provide atmospheric correction coefficients:
@@ -525,168 +522,194 @@ def sixs_surf(cor_a, cor_b, sen_rad):
 #=============================================================================
 #5: Combine the functions for a sample output when this script's called alone.
 def main():
-    obs_date = (inputPath.split("_"))[2].split("T")[0] #Get observation date.
-    sf = selected_metadata(inputPath, outputPath) #Get MTD & scale factor.
-    sf = float(sf)
-    #Correct solar irradiance for reflectance at measurement Earth's position:
-    sol_irr_at_sat, correction_coefficient = sol_irr(
-        "Reflectance_Conversion_meta_1.txt")
-    sol_cor = []
-    #sol_cor is stored in the form of [BAND_ID, VALUE, BAND_ID, VALUE,...]
-    for i in sol_irr_at_sat:
-        sol_cor = np.append(sol_cor,i.split("|")[0])
-        sol_cor = np.append(
-            sol_cor,(float(i.split("|")[1]))*correction_coefficient) 
-    #Create a function to collect wavelengths
-    #band_lambdas = wave_fun("Wavelength_meta_1.txt")
-    sat_lat, sat_lon = lat_and_long("Global_Footprint_meta_1.txt")
-    #Produce a tuple for the average solar zenith and azimuth angles.
-    sun_zen, sun_azi = sun_ang("Mean_Sun_meta_1.txt")
-    #Produce a tuple for the average viewing zenith and azimuth angles.
-    view_zen, view_azi = view_ang(
-        "Mean_Viewing_Incidence_Angle_List_meta_1.txt")
-    #Correct each band from reflectance to radiance.
-    data_file = ''.join(
-        [outputPath,"/",inputPath[:60],"_PROCESSED/merged.tif"])
-    dataset = gdal.Open(data_file, GA_ReadOnly) #Make gdal osgeo class object.
-    cols = dataset.RasterXSize #The number of columns; 5400 for S2 at 20m.
-    rows = dataset.RasterYSize #The number of rows; 5400 for S2 at 20m.
-    bands = dataset.RasterCount #the number of bands; 13 for S2 product.
-    geotransform = dataset.GetGeoTransform() #Geoinformation for product.
-    originX = geotransform[0]
-    originY = geotransform[3]
-    rasterOrigin = (originX, originY)
-    pixelWidth = geotransform[1]
-    pixelHeight = geotransform[5]
-    #Create arrays to append bands to.
-    radiance_bands = ["gdal_merge.py", "-o", "s2_radiance.tif","-separate"] 
-    smac_bands = ["gdal_merge.py", "-o", "smac.tif","-separate"]
-    sixs_bands = ["gdal_merge.py", "-o", "smac.tif","-separate"]
-    #The different band wavelengths which are necessary for 6S:
-    sixs_s2_wavelengths = """
-    S2A_MSI_01
-    S2A_MSI_02
-    S2A_MSI_03
-    S2A_MSI_04
-    S2A_MSI_05
-    S2A_MSI_06
-    S2A_MSI_07
-    S2A_MSI_08
-    S2A_MSI_09
-    S2A_MSI_10
-    S2A_MSI_11
-    S2A_MSI_12
-    S2A_MSI_13
-    """
-    sixs_s2_wavelengths = sixs_s2_wavelengths.strip("\n").strip(" ") \
-        .replace("\n","").split("    ")
-    #Ground altitude, would be useful to tie in equivalent S1 data.
-    gnd_alt = 0.2 #Surface height above sea level (km)
-    #Base filename for where the iLUTs are stored.
-    #Assumes that working in fixed directory, needs to be adapted.
-    base = "6S_emulator/files/LUTs/S2A_MSI/Continental/view_zenith_0/files/\
-        iLUTs/S2A_MSI/Continental/view_zenith_0/"
-    base = base.replace("        ",'')
-    logger.debug(base)
-    #Iterate through the 13 Sentinel bands, creating tiffs.
-    for i in range(bands):
-        #Initialise 6S
-        if i+1 < 10:                       
-            fpath = ''.join([base,"S2A_MSI_0",str(i+1),".ilut"])
-        else:
-            fpath = ''.join([base,"S2A_MSI_",str(i+1),".ilut"])
-        logger.debug("Filepath: %s", fpath)
-        with open(fpath, "rb") as ilut_file:
-            iLUT = pickle.load(ilut_file)
-        logger.debug("Satellite latitude: %s", sat_lat)
-        a, b = sixs_func(sat_lat, obs_date, obs_date[4:-2], obs_date[-2:],
-            sun_zen, sun_azi, view_zen[i], view_azi[i],
-            gnd_alt, sixs_s2_wavelengths[i], iLUT)
-        band = create_arr(dataset, i+1 ,cols, rows)
-        logger.info("Created array for band %s", str(i+1))
-        band_rad = s2_adjust(band, sol_cor[i*2 + 1], sun_zen, sf)
-        logger.info("Changed reflectance to radiance for band %s", str(i+1))
-        sixs_boa = sixs_surf(a, b, band_rad)
-        logger.info("Determined BOA reflectance using 6S parameters.")
-        if i < 8:
-            name = ''.join(["B",str(i+1)]) #Band names as in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_6s = create_tiff(
-                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
-                pixelHeight)
-            band_smac = smac_func(
-                i+1,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
-        elif i == 8:
-            name = ''.join(["B",str(i),"A"]) #Band name in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_6s = create_tiff(
-                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
-                pixelHeight)
-            band_smac = smac_func(
-                i,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', True)
-        else:
-            name = ''.join(["B",str(i)]) #Band names as in original MTD data.
-            band_gs = create_tiff(
-                band_rad, name,rasterOrigin,pixelWidth,pixelHeight)
-            band_6s = create_tiff(
-                sixs_boa, ''.join(["6S", name]), rasterOrigin, pixelWidth,
-                pixelHeight)
-            band_smac = smac_func(
-                i,np.array(band),view_azi,sun_azi,
-                view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
-        radiance_bands.append(''.join([name,".tif"]))
-        name_sm = ''.join(["SMAC_",name])
-        band_smac_gs1 = create_tiff(
-            band_smac, name_sm,rasterOrigin,pixelWidth,pixelHeight)
-        print("%.f" % (i*100/13), end="..", flush=True)
-        smac_bands.append(''.join([name_sm,".tif"]))
-        sixs_bands.append(''.join(["6S",name,".tif"]))
-
-    print("100 - done.")
-    sp.call(radiance_bands)
-    sp.call(smac_bands)
-    cur_dir = os.listdir()
-    for i in range(len(cur_dir)):
-        if cur_dir[i].endswith(".tif") or cur_dir[i].endswith(".txt"):
-            sp.call(["mv",cur_dir[i],outputPath])
-            logger.debug("Moved %s to %s", cur_dir[i], outputPath)
-    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
-    #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
-    #Errors when gdalwarp called as above, but the equivalent 
-    #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif out.tif
-    #is fine when input directly to terminal. 
-
-#=============================================================================
-
-#=============================================================================
-if __name__ == "__main__":
     start_time = time.time()
     st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
     logger.info("\n =====LOG START===== \n %s", st_gmt)
-    products = multi_open(os.getcwd())
-    try:
+    logger.debug("LOGGER level: %s", args.logger)
+    logger.debug("DIRECTORY: %s", args.directory)
+    logger.debug("PRODUCT: %s", args.satellite)
+    products = multi_open(args.directory,args.satellite)
+    if not isinstance(products,list):
+        logger.critical("Failed to find products in %s", args.directory)
+        raise TypeError
+    else:
         for i in range(len(products)):
             logger.info("Parsing %s of %s", i+1, len(products))
             inputPath = products[i]
+            logger.info("The input path was: %s \n",inputPath)
             outputPath = '_'.join([
                 products[i].split("_")[0],
                 products[i].split("_")[2].split("T")[0]])
-            outputPath = ''.join([outputPath,"/"]) #Data stored in directory.
+            outputPath = os.path.join(outputPath,"")
+            logger.info("The output path is: %s", outputPath)
             tg.generate_geotiffs(inputPath,outputPath)
-            logger.info("The input file was: %s \n",inputPath)
-            logger.info("The processed data was stored in: %s", outputPath)
-            main() 
-    except TypeError:
-        logger.error("Initial attempt at finding product failed.")
-        logger.debug("Select single product manually.")
-        inputPath, outputPath = open_s2() #Opens a Sentinel-2 product.
-        main()
+            #Get observation date.
+            obs_date = (inputPath.split("_"))[2].split("T")[0] 
+            logger.debug("Observation date: %s", obs_date)
+            #Get MTD & scale factor.
+            sf = selected_metadata(inputPath, outputPath) 
+            sf = float(sf)
+            #Correct solar irradiance for measurement at Earth's position:
+            ref_loc = os.path.join(outputPath,''.join([
+                "Reflectance_Conversion_meta.txt"]))
+            sol_irr_at_sat, correction_coefficient = sol_irr(ref_loc)
+            sol_cor = []
+            #sol_cor stored in the form [BAND_ID, VALUE, BAND_ID, VALUE,...]
+            for j in sol_irr_at_sat:
+                sol_cor = np.append(sol_cor,j.split("|")[0])
+                sol_cor = np.append(
+                    sol_cor,(float(j.split("|")[1]))*correction_coefficient) 
+            #Create a function to collect wavelengths
+            #band_lambdas = wave_fun("Wavelength_meta_1.txt")
+            glob_loc = os.path.join(outputPath,''.join([
+                "Global_Footprint_meta.txt"]))
+            sat_lat, sat_lon = lat_and_long(glob_loc)
+            #Produce a tuple for the average solar zenith and azimuth angles.
+            msm_loc = os.path.join(outputPath,''.join([
+                "Mean_Sun_meta.txt"]))
+            sun_zen, sun_azi = sun_ang(msm_loc)
+            #Produce a tuple for the average viewing zenith and azimuth angles.
+            msv_loc = os.path.join(outputPath,''.join([
+                "Mean_Viewing_Incidence_Angle_List_meta.txt"]))            
+            view_zen, view_azi = view_ang(msv_loc)
+            #Correct each band from reflectance to radiance.
+            base_proc = os.path.join(outputPath,
+                    inputPath.split("/")[-1].replace(".zip","_PROCESSED"))
+            data_file = os.path.join(base_proc,"merged.tif")
+            logger.debug(".tif data file: %s", data_file)
+            dataset = gdal.Open(data_file, GA_ReadOnly)
+            cols = dataset.RasterXSize
+            logger.debug("Columns in raster = %s", cols)
+            rows = dataset.RasterYSize
+            logger.debug("Rows in raster = %s", rows)
+            bands = dataset.RasterCount
+            logger.debug("The number of bands = %s", bands)
+            geotransform = dataset.GetGeoTransform() 
+            logger.debug("Geoinformation for product: %s", geotransform)
+            originX = geotransform[0]
+            originY = geotransform[3]
+            rasterOrigin = (originX, originY)
+            pixelWidth = geotransform[1]
+            pixelHeight = geotransform[5]
+            #Create arrays to append bands to.
+            radiance_bands = ["gdal_merge.py", "-o", 
+                os.path.join(outputPath,"s2_radiance.tif"),"-separate"] 
+            smac_bands = ["gdal_merge.py", "-o",
+                os.path.join(outputPath, "smac.tif"),"-separate"]
+            sixs_bands = ["gdal_merge.py", "-o",
+                 os.path.join(outputPath,"s2_6s.tif"),"-separate"]
+            #The different band wavelengths which are necessary for 6S:
+            sixs_s2_wavelengths = """
+            S2A_MSI_01
+            S2A_MSI_02
+            S2A_MSI_03
+            S2A_MSI_04
+            S2A_MSI_05
+            S2A_MSI_06
+            S2A_MSI_07
+            S2A_MSI_08
+            S2A_MSI_09
+            S2A_MSI_10
+            S2A_MSI_11
+            S2A_MSI_12
+            S2A_MSI_13
+            """
+            sixs_s2_wavelengths = sixs_s2_wavelengths.\
+                strip("\n").replace(" ","").split("\n")[:-1]
+            #Ground altitude, would be useful to tie in equivalent S1 data.
+            gnd_alt = 0.2 #Surface height above sea level (km)
+            #Base filename for where the iLUTs are stored.
+            #Assumes that working in fixed directory, needs to be adapted.
+            base_6s = os.path.join("/notebooks",
+                "6S_emulator","files","LUTs","S2A_MSI",
+                "Continental","view_zenith_0","files","iLUTs","S2A_MSI",
+                "Continental","view_zenith_0")
+            logger.debug(base_6s)
+            #Iterate through the 13 Sentinel bands, creating tiffs.
+            for k in range(bands):
+                #Initialise 6S
+                if k+1 < 10:                       
+                    fpath = os.path.join(
+                        base_6s,''.join(["S2A_MSI_0",str(k+1),".ilut"]))
+                else:
+                    fpath = os.path.join(
+                        base_6s,''.join(["S2A_MSI_",str(k+1),".ilut"]))
+                logger.debug("Filepath: %s", fpath)
+                with open(fpath, "rb") as ilut_file:
+                    iLUT = pickle.load(ilut_file)
+                logger.debug("Satellite latitude: %s", sat_lat)
+                a, b = sixs_func(
+                    sat_lat, obs_date, obs_date[4:-2], obs_date[-2:],
+                    sun_zen, sun_azi, view_zen[k], view_azi[k],
+                    gnd_alt, sixs_s2_wavelengths[k], iLUT, outputPath)
+                band = create_arr(dataset, k+1 ,cols, rows)
+                logger.info("Created array for band %s", str(k+1))
+                band_rad = s2_adjust(band, sol_cor[k*2 + 1], sun_zen, sf)
+                logger.info("Changed reflectance to radiance for band %s", str(k+1))
+                sixs_boa = sixs_surf(a, b, band_rad)
+                logger.info("Determined BOA reflectance using 6S parameters.")
+                if k < 8:
+                    name = ''.join(["B",str(k+1)]) #Band names as in original MTD data.
+                    band_gs = create_tiff(
+                        band_rad, name, rasterOrigin,
+                        pixelWidth, pixelHeight, outputPath)
+                    band_6s = create_tiff(
+                        sixs_boa, ''.join(["6S", name]), rasterOrigin,
+                        pixelWidth, pixelHeight, outputPath)
+                    band_smac = smac_func(
+                        k+1,np.array(band),view_azi,sun_azi,
+                        view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
+                elif k == 8:
+                    name = ''.join(["B",str(k),"A"]) #Band name in original MTD data.
+                    band_gs = create_tiff(
+                        band_rad, name, rasterOrigin,
+                        pixelWidth, pixelHeight, outputPath)
+                    band_6s = create_tiff(
+                        sixs_boa, ''.join(["6S", name]), rasterOrigin, 
+                        pixelWidth, pixelHeight, outputPath)
+                    band_smac = smac_func(
+                        k,np.array(band),view_azi,sun_azi,
+                        view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', True)
+                else:
+                    name = ''.join(["B",str(k)]) #Band names as in original MTD data.
+                    band_gs = create_tiff(
+                        band_rad, name,rasterOrigin,
+                        pixelWidth,pixelHeight, outputPath)
+                    band_6s = create_tiff(
+                        sixs_boa, ''.join(["6S", name]), rasterOrigin, 
+                        pixelWidth, pixelHeight, outputPath)
+                    band_smac = smac_func(
+                        k,np.array(band),view_azi,sun_azi,
+                        view_zen, sun_zen,'COEFS/Coef_S2A_CONT_B', False)
+                radiance_bands.append(
+                    os.path.join(outputPath,''.join([name,".tif"])))
+                name_sm = ''.join(["SMAC_",name])
+                band_smac_gs1 = create_tiff(
+                    band_smac, name_sm, rasterOrigin,
+                    pixelWidth, pixelHeight, outputPath)
+                smac_bands.append(
+                    os.path.join(outputPath,''.join([name_sm,".tif"])))
+                sixs_bands.append(
+                    os.path.join(outputPath,''.join(["6S",name,".tif"])))
+                print("%.f" % (k*100/13), end="..", flush=True)
+            print("100 - done.")
+            sp.call(radiance_bands)
+            logger.debug(radiance_bands)
+            sp.call(smac_bands)
+            logger.debug(smac_bands)
+            sp.call(sixs_bands)
+            logger.debug(sixs_bands)
+            #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","s2_radiance.tif","out.tif"])
+            #sp.call(["gdalwarp","-s_srs","'EPSG:32629'","-t_srs","'EPSG:32629'","smac","smac_out.tif"])
+            #Errors when gdalwarp called as above, but the equivalent 
+            #gdalwarp -s_srs 'EPSG:32629' -t_srs 'EPSG:32629' s2_radiance.tif out.tif
+            #is fine when input directly to terminal. 
     end_time = time.time()
     logger.info("Completed after %.3f seconds", end_time-start_time)
     print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
 
+#=============================================================================
+if __name__ == "__main__":
+    main()    
+#=============================================================================

@@ -9,8 +9,8 @@ import time
 
 logging.basicConfig(filename="S2A-AtmCor.log",format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # create logger
-logger = logging.getLogger('6S Output Reader')
-logger.setLevel(logging.DEBUG)
+logger = logging.getLogger('6S_Output_Reader')
+logger.setLevel(logging.INFO)
 # create console handler and set level to debug
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
@@ -79,19 +79,19 @@ def wv_and_ozone(data):
 #=============================================================================
 def main():
     #An example use of the script and its functions.
+    start_time = time.time()
+    st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
+    logger.info("=====LOG START: %s ===== ", st_gmt)
     outputs = sixsread("6S_outputs_S2A_MSI_02.txt")
     water_vapour, ozone = wv_and_ozone(outputs)
     logger.info("Water vapour (g/cm2) and ozone (cm-atm) values retrieved.")
+    end_time = time.time()
+    logger.info("Completed after %.3f seconds", end_time-start_time)
+    print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
 
 #=============================================================================
 if __name__ == "__main__":
-    start_time = time.time()
-    st_gmt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))
-    logger.info("=====LOG START: %s ===== ", st_gmt)
     main()
-    end_time = time.time()
-    logger.info("Completed after %.3f seconds", end_time-start_time)
-    print("\n == Completed after %.3f seconds ==" % (end_time - start_time))
 #=============================================================================
 
