@@ -108,7 +108,7 @@ def multi_open(path, product):
             logger.warning("No data found matching %s in %s", product, path)
             return None
     else:
-        logger.error("%s is not a directory.")
+        logger.error("%s is not a directory.", path)
         return None
         
 #=============================================================================
